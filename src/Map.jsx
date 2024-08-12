@@ -53,6 +53,7 @@ const Map = () => {
   const [query, setQuery] = useState("");
   const [locations, setLocations] = useState([]);
   const [selectedCoords, setSelectedCoords] = useState(null);
+  const [isSearchResultsVisible, setIsSearchResultsVisible] = useState(false);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -95,6 +96,7 @@ const Map = () => {
       });
 
       setLocations(sortedResults);
+      setIsSearchResultsVisible(true); // Show the search results
     } catch (error) {
       console.error("Error fetching location data:", error);
     }
@@ -102,6 +104,11 @@ const Map = () => {
 
   const handleLocationClick = (lat, lon) => {
     setSelectedCoords([lat, lon]);
+    setIsSearchResultsVisible(false); // Hide the search results
+  };
+
+  const handleInputClick = () => {
+    setIsSearchResultsVisible(true); // Show the search results when input is clicked
   };
 
   return (
@@ -114,18 +121,21 @@ const Map = () => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          onClick={handleInputClick} // Handle input click
         />
-        <div className="w-full overflow-y-auto bg-transparent  shadow-lg max-h-[85vh]">
-          {locations.map((location, index) => (
-            <div
-              key={index}
-              onClick={() => handleLocationClick(location.lat, location.lon)}
-              className="p-2 mb-6 bg-white border-b border-gray-300 rounded-md cursor-pointer hover:bg-gray-100"
-            >
-              {location.display_name}
-            </div>
-          ))}
-        </div>
+        {isSearchResultsVisible && (
+          <div className="w-full overflow-y-auto bg-transparent shadow-lg max-h-[85vh]">
+            {locations.map((location, index) => (
+              <div
+                key={index}
+                onClick={() => handleLocationClick(location.lat, location.lon)}
+                className="p-2 mb-6 bg-white border-b border-gray-300 rounded-md cursor-pointer hover:bg-gray-100"
+              >
+                {location.display_name}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <MapContainer
         center={userCoords}
