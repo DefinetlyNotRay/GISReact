@@ -7,39 +7,38 @@ const PORT = 5000;
 
 app.use(cors());
 
-const fetchDataFromOpenCage = async (query, lat, lon, retryCount = 3) => {
-  const url = "https://api.opencagedata.com/geocode/v1/json";
-  const params = {
-    q: `${query} near ${lat},${lon}`,
-    key: "7358294d2d424275b3c66b8c8a9fda57",
-    limit: 10,
-    no_annotations: 1,
-  };
+const fetchDataFromOverpass = async (query, lat, lon, radius = 10000) => {
+  // Overpass API query to search around a specific location within a radius
+  const overpassQuery = `
+    [out:json];
+    node
+      ["name"~"${query}", i]
+      (around:${radius}, ${lat}, ${lon});
+    out body;
+  `;
 
-  for (let attempt = 1; attempt <= retryCount; attempt++) {
-    try {
-      const response = await axios.get(url, { params, timeout: 10000 });
-      return response.data.results;
-    } catch (error) {
-      console.error(
-        `Attempt ${attempt} - Error fetching data from OpenCage:`,
-        error.message
-      );
-      if (attempt === retryCount) {
-        throw error;
-      }
-      await new Promise((res) => setTimeout(res, 1000)); // Wait 1 second before retrying
-    }
+  const url = "https://overpass-api.de/api/interpreter";
+
+  try {
+    const response = await axios.post(
+      url,
+      overpassQuery,
+      { headers: { "Content-Type": "text/plain" }, timeout: 10000 }
+    );
+    return response.data.elements;
+  } catch (error) {
+    console.error("Error fetching data from Overpass API:", error.message);
+    throw error;
   }
 };
 
 app.get("/search", async (req, res) => {
   const { query, lat, lon } = req.query;
   try {
-    const results = await fetchDataFromOpenCage(query, lat, lon);
+    const results = await fetchDataFromOverpass(query, lat, lon);
     res.json(results);
   } catch (error) {
-    res.status(500).json({ error: "Error fetching data from OpenCage" });
+    res.status(500).json({ error: "Error fetching data from Overpass API" });
   }
 });
 

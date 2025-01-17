@@ -73,13 +73,25 @@ const Map = () => {
     if (!query) return;
 
     try {
-      const response = await axios.get(
-        `https://nominatim.openstreetmap.org/search?q=${query}&format=json&addressdetails=1&limit=10`
-      );
+      const response = await axios.get("/search", {
+        params: {
+          query,
+          lat: userCoords[0],
+          lon: userCoords[1],
+        },
+      });
+
       const results = response.data;
 
+      // Map Overpass results to the format expected by the frontend
+      const mappedResults = results.map((result) => ({
+        lat: result.lat,
+        lon: result.lon,
+        display_name: result.tags.name || "Unnamed Location",
+      }));
+
       // Sort results by distance from user's current location
-      const sortedResults = results.sort((a, b) => {
+      const sortedResults = mappedResults.sort((a, b) => {
         const distanceA = calculateDistance(
           userCoords[0],
           userCoords[1],
@@ -96,7 +108,7 @@ const Map = () => {
       });
 
       setLocations(sortedResults);
-      setIsSearchResultsVisible(true); // Show the search results
+      setIsSearchResultsVisible(true);
     } catch (error) {
       console.error("Error fetching location data:", error);
     }
