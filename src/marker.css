@@ -1,0 +1,15 @@
+.user-marker {
+  background-color: blue;
+  border-radius: 50%;
+  width: 25px;
+  height: 25px;
+  border: 2px solid white;
+}
+
+.search-marker {
+  background-color: red;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  border: 2px solid white;
+}

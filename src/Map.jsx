@@ -1,27 +1,10 @@
 import React, { useEffect, useState } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  useMap,
-  Tooltip,
-} from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import tt from "@tomtom-international/web-sdk-maps";
+import ttServices from "@tomtom-international/web-sdk-services";
+import "@tomtom-international/web-sdk-maps/dist/maps.css";
+import "./marker.css";
 import axios from "axios";
 
-// Custom icon for the main location marker
-const redIcon = new L.Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
-  iconSize: [32, 32], // size of the icon
-});
-
-const arrowIcon = new L.Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png", // Change this to your preferred arrow icon URL
-  iconSize: [24, 24], // Adjust the size as needed
-});
-
-// Haversine formula to calculate distance between two points
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const toRad = (value) => (value * Math.PI) / 180;
   const R = 6371; // Radius of the Earth in km
@@ -34,26 +17,31 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // Distance in km
-};
-
-const SetViewOnCoordsChange = ({ coords }) => {
-  const map = useMap();
-  useEffect(() => {
-    if (coords) {
-      map.setView(coords, map.getZoom());
-    }
-  }, [coords, map]);
-
-  return null;
+  return (R * c).toFixed(2); // Distance in km, rounded to 2 decimal places
 };
 
 const Map = () => {
-  const [userCoords, setUserCoords] = useState([-6.2088, 106.8456]); // Default to Jakarta, Indonesia
+  const [isSearchResultsVisible, setIsSearchResultsVisible] = useState(false);
+  const [userCoords, setUserCoords] = useState([106.741905, -6.403254]); // Default to Jakarta
   const [query, setQuery] = useState("");
   const [locations, setLocations] = useState([]);
-  const [selectedCoords, setSelectedCoords] = useState(null);
-  const [isSearchResultsVisible, setIsSearchResultsVisible] = useState(false);
+  const [map, setMap] = useState(null);
+  const [markers, setMarkers] = useState([]);
+  const [routeLayer, setRouteLayer] = useState(null);
+
+  const clearMarkers = () => {
+    markers.forEach((marker) => marker.remove());
+    setMarkers([]);
+  };
+
+  const clearRoute = () => {
+    if (map.getLayer("route")) {
+      map.removeLayer("route");
+    }
+    if (map.getSource("route")) {
+      map.removeSource("route");
+    }
+  };
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -69,58 +57,119 @@ const Map = () => {
     );
   }, []);
 
+  useEffect(() => {
+    const mapInstance = tt.map({
+      key: "oQpDT61lYsQpX376bAf3aK1myogYGLLR",
+      container: "map",
+      center: userCoords,
+      zoom: 13,
+    });
+
+    // User marker
+    const userMarker = new tt.Marker({ className: "user-marker" })
+      .setLngLat(userCoords)
+      .addTo(mapInstance);
+
+    setMap(mapInstance);
+
+    return () => mapInstance.remove();
+  }, [userCoords]);
+
   const handleSearch = async () => {
-    if (!query) return;
+    if (!query.trim()) {
+      setLocations([]);
+      setIsSearchResultsVisible(false);
+      clearMarkers();
+      clearRoute();
+
+      return;
+    }
 
     try {
-      const response = await axios.get("/search", {
-        params: {
-          query,
-          lat: userCoords[0],
-          lon: userCoords[1],
-        },
-      });
+      const response = await axios.get(
+        `https://api.tomtom.com/search/2/search/${encodeURIComponent(
+          query
+        )}.json?key=oQpDT61lYsQpX376bAf3aK1myogYGLLR&lon=${userCoords[0]}&lat=${
+          userCoords[1]
+        }&radius=10000&limit=10`
+      );
 
-      const results = response.data;
-
-      // Map Overpass results to the format expected by the frontend
-      const mappedResults = results.map((result) => ({
-        lat: result.lat,
-        lon: result.lon,
-        display_name: result.tags.name || "Unnamed Location",
+      const results = response.data.results.map((result) => ({
+        lat: result.position.lat,
+        lon: result.position.lon,
+        display_name: result.poi?.name || "Unnamed location",
+        address: result.address?.freeformAddress || "Address not available",
+        distance: calculateDistance(
+          userCoords[1],
+          userCoords[0],
+          result.position.lat,
+          result.position.lon
+        ),
       }));
 
-      // Sort results by distance from user's current location
-      const sortedResults = mappedResults.sort((a, b) => {
-        const distanceA = calculateDistance(
-          userCoords[0],
-          userCoords[1],
-          a.lat,
-          a.lon
+      const sortedResults = results.sort((a, b) => a.distance - b.distance);
+      setLocations(sortedResults);
+      setIsSearchResultsVisible(sortedResults.length > 0);
+
+      clearMarkers();
+      clearRoute();
+
+      const newMarkers = sortedResults.map((location) => {
+        const marker = new tt.Marker({ className: "search-marker" })
+          .setLngLat([location.lon, location.lat])
+          .addTo(map);
+
+        const popup = new tt.Popup({ offset: 35 }).setHTML(
+          `<div>
+            <strong>${location.display_name}</strong><br />
+            ${location.address}<br />
+            <span>Distance: ${location.distance} km</span>
+          </div>`
         );
-        const distanceB = calculateDistance(
-          userCoords[0],
-          userCoords[1],
-          b.lat,
-          b.lon
-        );
-        return distanceA - distanceB;
+
+        marker.setPopup(popup);
+
+        marker.getElement().addEventListener("click", () => {
+          drawRoute(location.lat, location.lon);
+        });
+
+        return marker;
       });
 
-      setLocations(sortedResults);
-      setIsSearchResultsVisible(true);
+      setMarkers(newMarkers);
     } catch (error) {
-      console.error("Error fetching location data:", error);
+      console.error("Error fetching location data from TomTom:", error.message);
     }
   };
 
-  const handleLocationClick = (lat, lon) => {
-    setSelectedCoords([lat, lon]);
-    setIsSearchResultsVisible(false); // Hide the search results
-  };
+  const drawRoute = async (destLat, destLon) => {
+    clearRoute();
 
-  const handleInputClick = () => {
-    setIsSearchResultsVisible(true); // Show the search results when input is clicked
+    try {
+      const routeData = await ttServices.services.calculateRoute({
+        key: "oQpDT61lYsQpX376bAf3aK1myogYGLLR",
+        locations: `${userCoords[0]},${userCoords[1]}:${destLon},${destLat}`,
+      });
+
+      const geoJson = routeData.toGeoJson();
+
+      map.addSource("route", {
+        type: "geojson",
+        data: geoJson,
+      });
+
+      map.addLayer({
+        id: "route",
+        type: "line",
+        source: "route",
+        paint: {
+          "line-color": "#4a90e2",
+          "line-width": 6,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching route:", error.message);
+    }
   };
 
   return (
@@ -133,63 +182,27 @@ const Map = () => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          onClick={handleInputClick} // Handle input click
         />
         {isSearchResultsVisible && (
-          <div className="w-full overflow-y-auto bg-transparent shadow-lg max-h-[85vh]">
+          <div className="w-full overflow-y-scroll bg-transparent shadow-lg max-h-[85vh]">
             {locations.map((location, index) => (
               <div
                 key={index}
-                onClick={() => handleLocationClick(location.lat, location.lon)}
+                onClick={() => drawRoute(location.lat, location.lon)}
                 className="p-2 mb-6 bg-white border-b border-gray-300 rounded-md cursor-pointer hover:bg-gray-100"
               >
-                {location.display_name}
+                <p className="font-semibold">{location.display_name}</p>
+                <p className="text-sm text-gray-600">{location.address}</p>
+                <p className="text-xs text-gray-500">
+                  Distance: {location.distance} km
+                </p>
               </div>
             ))}
           </div>
         )}
       </div>
-      <MapContainer
-        center={userCoords}
-        zoom={13}
-        style={{ height: "100vh", width: "100%" }}
-        zoomControl={false} // Disable the default zoom control
-        className="z-10"
-      >
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        />
-        {/* User's current location marker */}
-        <Marker position={userCoords} icon={redIcon}>
-          <Tooltip permanent>Current Location</Tooltip>
-        </Marker>
 
-        {/* Display search result markers */}
-        {locations.map((location, index) => {
-          const distance = calculateDistance(
-            userCoords[0],
-            userCoords[1],
-            location.lat,
-            location.lon
-          ).toFixed(2);
-
-          return (
-            <Marker
-              key={index}
-              position={[location.lat, location.lon]}
-              icon={arrowIcon}
-            >
-              <Tooltip direction="top" offset={[0, -10]} permanent>
-                {`${distance} km`}
-              </Tooltip>
-            </Marker>
-          );
-        })}
-
-        {/* Update map view on user location change or when a location is selected */}
-        <SetViewOnCoordsChange coords={selectedCoords || userCoords} />
-      </MapContainer>
+      <div id="map" className="w-full h-full" />
     </div>
   );
 };
